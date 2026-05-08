@@ -1,17 +1,18 @@
-"use client"
+"use client";
 
-import { Bell, Plus, Search } from "lucide-react"
-import { useState } from "react"
-import clsx from "clsx"
+import { Plus, Search } from "lucide-react";
+import { useState } from "react";
+import clsx from "clsx";
+import NotificationBell from "../notifications/NotificationBell";
 
 interface TopbarProps {
-  title: string
-  subtitle?: string
-  onAddExpense?: () => void
+  title: string;
+  subtitle?: string;
+  onAddExpense?: () => void;
 }
 
 export default function Topbar({ title, subtitle, onAddExpense }: TopbarProps) {
-  const [searchOpen, setSearchOpen] = useState(false)
+  const [searchOpen, setSearchOpen] = useState(false);
 
   return (
     <header className="h-[60px] flex items-center justify-between px-6 border-b border-[#f0f0ee] bg-white flex-shrink-0">
@@ -22,9 +23,7 @@ export default function Topbar({ title, subtitle, onAddExpense }: TopbarProps) {
             <h1 className="text-[#0a1a14] text-base font-semibold leading-tight">
               {title}
             </h1>
-            {subtitle && (
-              <p className="text-[#9ca3af] text-xs">{subtitle}</p>
-            )}
+            {subtitle && <p className="text-[#9ca3af] text-xs">{subtitle}</p>}
           </div>
         )}
 
@@ -32,7 +31,7 @@ export default function Topbar({ title, subtitle, onAddExpense }: TopbarProps) {
         <div
           className={clsx(
             "flex items-center gap-2 transition-all duration-200",
-            searchOpen ? "w-64" : "w-8"
+            searchOpen ? "w-64" : "w-8",
           )}
         >
           <button
@@ -56,11 +55,8 @@ export default function Topbar({ title, subtitle, onAddExpense }: TopbarProps) {
 
       {/* Right */}
       <div className="flex items-center gap-2">
-        {/* Notifications */}
-        <button className="relative w-8 h-8 flex items-center justify-center rounded-lg text-[#9ca3af] hover:bg-[#f3f4f6] hover:text-[#0a1a14] transition-colors">
-          <Bell size={16} />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-[#D85A30]" />
-        </button>
+        {/* Notification bell — owns its own dropdown + state */}
+        <NotificationBell />
 
         {/* Month badge */}
         <div className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 bg-[#f7f6f2] rounded-lg border border-[#e5e7eb]">
@@ -77,5 +73,5 @@ export default function Topbar({ title, subtitle, onAddExpense }: TopbarProps) {
         </button>
       </div>
     </header>
-  )
+  );
 }

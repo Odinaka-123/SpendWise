@@ -3,24 +3,48 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff, Mail, Lock, ArrowRight, TrendingUp } from "lucide-react";
+import { signIn, signInWithGoogle } from "@/lib/actions/auth";
 
 export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState({ email: "", password: "" });
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
 
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError("");
     setLoading(true);
-    await new Promise((r) => setTimeout(r, 1500));
-    setLoading(false);
+
+    const result = await signIn(form);
+
+    // signIn redirects on success so we only get here on error
+    if (result?.error) {
+      setError(result.error);
+      setLoading(false);
+    }
   };
+
+  const handleGoogle = async () => {
+  setLoading(true)
+  setError("")
+  const result = await signInWithGoogle()
+  if (result?.error) {
+    setError(result.error)
+    setLoading(false)
+    return
+  }
+  if (result?.url) {
+    window.location.href = result.url
+  }
+}
 
   return (
     <div className="min-h-screen bg-[#f7f6f2] flex">
+      {/* Left panel */}
       <div className="hidden lg:flex lg:w-[45%] bg-[#0a1a14] flex-col justify-between p-12 relative overflow-hidden">
         <div
           className="absolute inset-0 opacity-[0.04]"
@@ -41,7 +65,6 @@ export default function LoginPage() {
             62% used · 12 days left
           </p>
         </div>
-
         <div className="absolute top-72 -right-2 w-48 bg-[#0f2d21] border border-[#1D9E75]/20 rounded-2xl p-4 -rotate-2 opacity-60">
           <div className="flex items-center gap-2 mb-2">
             <div className="w-2 h-2 rounded-full bg-[#1D9E75] animate-pulse" />
@@ -51,7 +74,6 @@ export default function LoginPage() {
           <p className="text-[#D85A30] text-lg font-semibold">-₦1,200</p>
           <p className="text-[#5DCAA5]/50 text-xs">Just now</p>
         </div>
-
         <div className="absolute bottom-36 -right-6 w-52 bg-[#0f2d21] border border-[#1D9E75]/20 rounded-2xl p-4 rotate-3 opacity-50">
           <p className="text-[#5DCAA5] text-xs mb-1">Savings goal</p>
           <p className="text-white text-xl font-semibold">New MacBook</p>
@@ -84,11 +106,10 @@ export default function LoginPage() {
               left them.
             </p>
           </div>
-
           <div className="bg-[#0f2d21] border border-[#1D9E75]/20 rounded-2xl p-4 max-w-xs">
             <p className="text-[#5DCAA5]/80 text-sm leading-relaxed italic">
-              "SpendWise helped me cut my monthly overspending by half in just 6
-              weeks."
+              &ldquo;SpendWise helped me cut my monthly overspending by half in
+              just 6 weeks.&rdquo;
             </p>
             <div className="flex items-center gap-2.5 mt-3">
               <div className="w-7 h-7 rounded-full bg-[#1D9E75]/30 flex items-center justify-center text-[#5DCAA5] text-xs font-semibold">
@@ -107,6 +128,7 @@ export default function LoginPage() {
         </p>
       </div>
 
+      {/* Right panel */}
       <div className="flex-1 flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-105 space-y-8 animate-fade-in">
           <div className="lg:hidden flex items-center gap-2">
@@ -133,9 +155,17 @@ export default function LoginPage() {
             </p>
           </div>
 
+          {error && (
+            <div className="px-4 py-3 bg-red-50 border border-red-200 rounded-xl text-red-600 text-sm">
+              {error}
+            </div>
+          )}
+
           <button
             type="button"
-            className="w-full flex items-center justify-center gap-2.5 py-2.5 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#0a1a14] text-sm font-medium rounded-xl transition-all duration-200 active:scale-[0.98]"
+            onClick={handleGoogle}
+            disabled={loading}
+            className="w-full flex items-center justify-center gap-2.5 py-2.5 bg-white border border-[#e5e7eb] hover:bg-[#f9fafb] text-[#0a1a14] text-sm font-medium rounded-xl transition-all duration-200 active:scale-[0.98] disabled:opacity-50"
           >
             <svg viewBox="0 0 24 24" className="w-4 h-4" aria-hidden="true">
               <path
@@ -247,31 +277,27 @@ export default function LoginPage() {
               className="w-full flex items-center justify-center gap-2 py-2.5 bg-[#1D9E75] hover:bg-[#0F6E56] disabled:opacity-50 disabled:cursor-not-allowed text-white text-sm font-medium rounded-xl transition-all duration-200 active:scale-[0.98]"
             >
               {loading ?
-                <span className="flex items-center gap-2">
-                  <svg
-                    className="animate-spin h-4 w-4 text-white"
-                    viewBox="0 0 24 24"
-                    fill="none"
-                  >
-                    <circle
-                      className="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      strokeWidth="4"
-                    />
-                    <path
-                      className="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8v8z"
-                    />
-                  </svg>
-                  Signing in…
-                </span>
+                <svg
+                  className="animate-spin h-4 w-4 text-white"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8v8z"
+                  />
+                </svg>
               : <>
-                  Sign in
-                  <ArrowRight size={15} />
+                  Sign in <ArrowRight size={15} />
                 </>
               }
             </button>
