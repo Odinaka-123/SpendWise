@@ -25,6 +25,7 @@ interface FiltersProps {
   onDateFrom: (v: string) => void
   onDateTo: (v: string) => void
   onClear: () => void
+  categoryOptions?: string[]   // ← add this
 }
 
 export default function TransactionFilters({

@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useState, useMemo } from "react";
@@ -6,65 +5,86 @@ import { Plus, AlertTriangle } from "lucide-react";
 import BudgetCard, { type Budget } from "../components/budget/BudgetCard";
 import BudgetModal from "../components/budget/BudgetModal";
 import BudgetSummary from "../components/budget/BudgetSummary";
-
-const categoryColors: Record<string, string> = {
-  Groceries: "#0F6E56",
-  Dining: "#993556",
-  Transport: "#185FA5",
-  Housing: "#854F0B",
-  Entertainment: "#534AB7",
-  Utility: "#3B6D11",
-  Other: "#6b7280",
-};
-
-const seed: Budget[] = [
-  { id: "1", category: "Groceries", limit: 20000, spent: 14350, color: categoryColors.Groceries, icon: "Groceries" },
-  { id: "2", category: "Dining", limit: 15000, spent: 6000, color: categoryColors.Dining, icon: "Dining" },
-  { id: "3", category: "Transport", limit: 10000, spent: 2800, color: categoryColors.Transport, icon: "Transport" },
-  { id: "4", category: "Housing", limit: 50000, spent: 35000, color: categoryColors.Housing, icon: "Housing" },
-  { id: "5", category: "Entertainment", limit: 8000, spent: 4600, color: categoryColors.Entertainment, icon: "Entertainment" },
-  { id: "6", category: "Utility", limit: 12000, spent: 8500, color: categoryColors.Utility, icon: "Utility" },
-];
-
-const ALL_CATEGORIES = ["Groceries", "Dining", "Transport", "Housing", "Entertainment", "Utility", "Other"];
+import { useBudgetAlerts } from "@/hooks/useBudgetAlerts";
+import { useCategories } from "@/hooks/useCategories";
 
 export default function BudgetPage() {
-  const [budgets, setBudgets] = useState<Budget[]>(seed);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+
+  const { budgets: rawBudgets, loading, error, upsert, remove } =
+    useBudgetAlerts(currentMonth);
+  const { categories } = useCategories();
+
   const [modalOpen, setModalOpen] = useState(false);
-  const [editing, setEditing] = useState<Budget | null>(null);
+  const [editing, setEditing]     = useState<Budget | null>(null);
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  // Map BudgetVsActual rows → Budget shape the card/modal expect
+  const budgets: Budget[] = useMemo(
+    () =>
+      rawBudgets.map((b) => ({
+        id:       b.category_id,
+        category: b.category_name ?? b.category_id,
+        limit:    b.budget_amount,
+        spent:    b.actual_spent,
+        color:    b.category_color ?? "#6b7280",
+        icon:     b.category_name ?? b.category_id,
+      })),
+    [rawBudgets]
+  );
 
   const totalLimit = useMemo(() => budgets.reduce((s, b) => s + b.limit, 0), [budgets]);
   const totalSpent = useMemo(() => budgets.reduce((s, b) => s + b.spent, 0), [budgets]);
   const overBudget = budgets.filter((b) => b.spent > b.limit);
-  const onTrack = budgets.filter((b) => b.spent <= b.limit);
+  const onTrack    = budgets.filter((b) => b.spent <= b.limit);
 
-  const existingCategories = new Set(budgets.map((b) => b.category));
-  const canAdd = ALL_CATEGORIES.some((c) => !existingCategories.has(c));
+  const existingCategories = useMemo(
+    () => new Set(budgets.map((b) => b.category)),
+    [budgets]
+  );
 
-  const handleSave = ({ category, limit }: { category: string; limit: number }) => {
-    if (editing) {
-      setBudgets((p) => p.map((b) => b.id === editing.id ? { ...b, limit } : b));
-    } else {
-      setBudgets((p) => [
-        ...p,
-        {
-          id: String(Date.now()),
-          category,
-          limit,
-          spent: 0,
-          color: categoryColors[category] ?? "#6b7280",
-          icon: category,
-        },
-      ]);
+  // Always allow adding — the modal filters taken categories and always offers "Other"
+  const canAdd = true;
+
+  const handleSave = async ({ category, limit }: { category: string; limit: number }) => {
+    setSaveError(null);
+    try {
+      if (editing) {
+        await upsert({ category_id: editing.id, amount: limit });
+      } else {
+        let cat = categories.find((c) => c.name === category);
+
+        if (!cat) {
+          const { createCategory } = await import("@/lib/actions/categories");
+          cat = await createCategory({
+            name:  category,
+            color: "#6b7280",
+            icon:  "wallet",
+          });
+        }
+
+        if (cat) {
+          await upsert({ category_id: cat.id, amount: limit });
+        }
+      }
+      setModalOpen(false);
+      setEditing(null);
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : "Failed to save budget");
     }
   };
 
-  const handleDelete = (id: string) => setBudgets((p) => p.filter((b) => b.id !== id));
+  const handleDelete = async (id: string) => remove(id);
 
   const handleEdit = (b: Budget) => {
     setEditing(b);
     setModalOpen(true);
   };
+
+  const monthLabel = new Date().toLocaleString("en-NG", {
+    month: "long",
+    year:  "numeric",
+  });
 
   return (
     <>
@@ -73,18 +93,27 @@ export default function BudgetPage() {
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-[#0a1a14] text-lg font-semibold">Budgets</h2>
-            <p className="text-[#9ca3af] text-xs mt-0.5">May 2026 spending limits</p>
+            <p className="text-[#9ca3af] text-xs mt-0.5">
+              {monthLabel} spending limits
+            </p>
           </div>
-          {canAdd && (
-            <button
-              onClick={() => { setEditing(null); setModalOpen(true); }}
-              className="flex items-center gap-1.5 px-3 py-2 bg-[#1D9E75] hover:bg-[#0F6E56] text-white text-xs font-medium rounded-xl transition-all active:scale-[0.98]"
-            >
-              <Plus size={13} />
-              New budget
-            </button>
-          )}
+          <button
+            onClick={() => { setEditing(null); setModalOpen(true); }}
+            disabled={!canAdd}
+            className="flex items-center gap-1.5 px-3 py-2 bg-[#1D9E75] hover:bg-[#0F6E56] disabled:opacity-40 disabled:cursor-not-allowed text-white text-xs font-medium rounded-xl transition-all active:scale-[0.98]"
+          >
+            <Plus size={13} />
+            New budget
+          </button>
         </div>
+
+        {/* Error */}
+        {error && (
+          <div className="flex items-center gap-3 px-4 py-3 bg-[#FCEBEB] border border-red-200 rounded-2xl">
+            <AlertTriangle size={15} className="text-[#E24B4A] shrink-0" />
+            <p className="text-xs text-[#E24B4A]">{error}</p>
+          </div>
+        )}
 
         {/* Over-budget alert */}
         {overBudget.length > 0 && (
@@ -92,15 +121,16 @@ export default function BudgetPage() {
             <AlertTriangle size={15} className="text-[#D97706] shrink-0" />
             <p className="text-xs text-[#92400E]">
               <span className="font-semibold">
-                {overBudget.length} {overBudget.length === 1 ? "category" : "categories"}
+                {overBudget.length}{" "}
+                {overBudget.length === 1 ? "category" : "categories"}
               </span>{" "}
-              {overBudget.length === 1 ? "has" : "have"} exceeded the monthly limit —{" "}
-              {overBudget.map((b) => b.category).join(", ")}.
+              {overBudget.length === 1 ? "has" : "have"} exceeded the monthly
+              limit — {overBudget.map((b) => b.category).join(", ")}.
             </p>
           </div>
         )}
 
-        {/* Master summary */}
+        {/* Summary */}
         <BudgetSummary
           totalLimit={totalLimit}
           totalSpent={totalSpent}
@@ -108,16 +138,39 @@ export default function BudgetPage() {
           onTrackCount={onTrack.length}
         />
 
-        {/* Budget grid */}
-        {budgets.length === 0 ? (
+        {/* Grid */}
+        {loading ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="bg-white border border-[#f0f0ee] rounded-2xl p-5 h-36 animate-pulse" />
+            ))}
+          </div>
+        ) : budgets.length === 0 ? (
           <div className="bg-white border border-[#f0f0ee] rounded-2xl p-12 text-center">
-            <p className="text-[#9ca3af] text-sm">No budgets set yet.</p>
-            <p className="text-[#d1d5db] text-xs mt-1">Click &quot;New budget&quot; to get started.</p>
+            <div className="w-12 h-12 bg-[#E1F5EE] rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <Plus size={20} className="text-[#1D9E75]" />
+            </div>
+            <p className="text-[#0a1a14] text-sm font-medium">No budgets set yet</p>
+            <p className="text-[#9ca3af] text-xs mt-1 mb-4">
+              Set monthly limits per category to track your spending.
+            </p>
+            <button
+              onClick={() => { setEditing(null); setModalOpen(true); }}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-[#1D9E75] hover:bg-[#0F6E56] text-white text-xs font-medium rounded-xl transition-all active:scale-[0.98]"
+            >
+              <Plus size={13} />
+              Create your first budget
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {budgets.map((b) => (
-              <BudgetCard key={b.id} budget={b} onEdit={handleEdit} onDelete={handleDelete} />
+              <BudgetCard
+                key={b.id}
+                budget={b}
+                onEdit={handleEdit}
+                onDelete={handleDelete}
+              />
             ))}
           </div>
         )}
@@ -125,10 +178,12 @@ export default function BudgetPage() {
 
       <BudgetModal
         open={modalOpen}
-        onClose={() => setModalOpen(false)}
+        onClose={() => { setModalOpen(false); setEditing(null); setSaveError(null); }}
         onSave={handleSave}
         initial={editing}
         existingCategories={existingCategories}
+        allCategories={categories}
+        externalError={saveError}
       />
     </>
   );

@@ -3,46 +3,37 @@
 import { X, Check } from "lucide-react";
 import { useState } from "react";
 import type { Budget } from "./BudgetCard";
+import type { Category } from "@/lib/database.types";
 
-const categories = [
+const FALLBACK_CATEGORIES = [
   "Groceries",
   "Dining",
   "Transport",
   "Housing",
   "Entertainment",
   "Utility",
-  "Other",
+  "Health",
+  "Savings",
+  "Education",
+  "Shopping",
 ];
 
 interface BudgetModalProps {
   open: boolean;
   onClose: () => void;
-  onSave: (data: { category: string; limit: number }) => void;
+  onSave: (data: { category: string; limit: number }) => Promise<void>;
   initial?: Budget | null;
   existingCategories: Set<string>;
+  allCategories: Category[];
+  externalError?: string | null;
 }
 
-export default function BudgetModal({
-  open,
-  onClose,
-  onSave,
-  initial,
-  existingCategories,
-}: BudgetModalProps) {
-  if (!open) return null;
-
-  const modalKey =
-    initial ? `edit-${initial.category}-${initial.limit}` : "new";
-
-  return (
-    <BudgetModalContent
-      key={modalKey}
-      onClose={onClose}
-      onSave={onSave}
-      initial={initial}
-      existingCategories={existingCategories}
-    />
-  );
+export default function BudgetModal(props: BudgetModalProps) {
+  if (!props.open) return null;
+  const modalKey = props.initial
+    ? `edit-${props.initial.category}-${props.initial.limit}`
+    : "new";
+  return <BudgetModalContent key={modalKey} {...props} />;
 }
 
 function BudgetModalContent({
@@ -50,24 +41,45 @@ function BudgetModalContent({
   onSave,
   initial,
   existingCategories,
+  allCategories,
+  externalError,
 }: Omit<BudgetModalProps, "open">) {
-  const availableCategories =
-    initial ? categories : categories.filter((c) => !existingCategories.has(c));
+  // Use DB categories if available, otherwise fall back to hardcoded list
+  // Strip "Other" out — it's handled separately
+  const presetNames =
+    allCategories.length > 0
+      ? allCategories.map((c) => c.name).filter((n) => n !== "Other")
+      : FALLBACK_CATEGORIES;
 
-  const [category, setCategory] = useState(
-    initial?.category ?? availableCategories[0] ?? "Groceries",
-  );
-  const [limit, setLimit] = useState(initial?.limit?.toString() ?? "");
-  const [saving, setSaving] = useState(false);
+  // Default to first available preset, fallback to "Other"
+  const firstAvailable =
+    presetNames.find((n) => !existingCategories.has(n)) ?? "Other";
+
+  const defaultCategory = initial?.category ?? firstAvailable;
+
+  const [selected, setSelected]     = useState(defaultCategory);
+  const [customName, setCustomName] = useState("");
+  const [limit, setLimit]           = useState(initial?.limit?.toString() ?? "");
+  const [saving, setSaving]         = useState(false);
+  const [error, setError]           = useState<string | null>(null);
+
+  const isOther      = selected === "Other";
+  const categoryName = isOther ? customName.trim() : selected;
 
   const handleSave = async () => {
     if (!limit || Number(limit) <= 0) return;
+    if (!categoryName) return;
     setSaving(true);
-    await new Promise((r) => setTimeout(r, 500));
-    onSave({ category, limit: Number(limit) });
-    setSaving(false);
-    onClose();
+    setError(null);
+    try {
+      await onSave({ category: categoryName, limit: Number(limit) });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save budget");
+      setSaving(false);
+    }
   };
+
+  const dbCategory = allCategories.find((c) => c.name === selected);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
@@ -92,22 +104,63 @@ function BudgetModalContent({
 
         {/* Body */}
         <div className="p-5 space-y-4">
+          {/* Category */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[#0a1a14]">
               Category
             </label>
-            <select
-              value={category}
-              onChange={(e) => setCategory(e.target.value)}
-              disabled={!!initial}
-              className="w-full px-3 py-2.5 bg-[#f7f6f2] border border-[#f0f0ee] rounded-xl text-sm text-[#0a1a14] focus:outline-none focus:border-[#1D9E75] focus:ring-2 focus:ring-[#1D9E75]/10 transition-all appearance-none disabled:opacity-60"
-            >
-              {availableCategories.map((c) => (
-                <option key={c}>{c}</option>
-              ))}
-            </select>
+
+            {initial ? (
+              // Editing — read-only with color dot
+              <div className="flex items-center gap-2.5 px-3 py-2.5 bg-[#f7f6f2] border border-[#f0f0ee] rounded-xl">
+                <span
+                  className="w-3 h-3 rounded-full shrink-0"
+                  style={{ backgroundColor: dbCategory?.color ?? "#9ca3af" }}
+                />
+                <span className="text-sm text-[#0a1a14]">{selected}</span>
+              </div>
+            ) : (
+              <select
+                value={selected}
+                onChange={(e) => {
+                  setSelected(e.target.value);
+                  setCustomName("");
+                }}
+                className="w-full px-3 py-2.5 bg-[#f7f6f2] border border-[#f0f0ee] rounded-xl text-sm text-[#0a1a14] focus:outline-none focus:border-[#1D9E75] focus:ring-2 focus:ring-[#1D9E75]/10 transition-all appearance-none"
+              >
+                {/* Preset categories group */}
+                <optgroup label="Categories">
+                  {presetNames.map((name) => {
+                    const isTaken = existingCategories.has(name);
+                    return (
+                      <option key={name} value={name} disabled={isTaken}>
+                        {isTaken ? `${name} (already budgeted)` : name}
+                      </option>
+                    );
+                  })}
+                </optgroup>
+
+                {/* Custom / Other group */}
+                <optgroup label="Custom">
+                  <option value="Other">Other (type your own)</option>
+                </optgroup>
+              </select>
+            )}
+
+            {/* Custom name input when Other is selected */}
+            {isOther && !initial && (
+              <input
+                type="text"
+                placeholder="e.g. Pet care, Subscriptions…"
+                value={customName}
+                onChange={(e) => setCustomName(e.target.value)}
+                autoFocus
+                className="w-full px-3 py-2.5 bg-[#f7f6f2] border border-[#f0f0ee] rounded-xl text-sm text-[#0a1a14] placeholder:text-[#9ca3af] focus:outline-none focus:border-[#1D9E75] focus:ring-2 focus:ring-[#1D9E75]/10 transition-all"
+              />
+            )}
           </div>
 
+          {/* Monthly limit */}
           <div className="space-y-1.5">
             <label className="text-xs font-medium text-[#0a1a14]">
               Monthly limit (₦)
@@ -121,46 +174,44 @@ function BudgetModalContent({
             />
           </div>
 
-          {/* Helper hint */}
           <p className="text-xs text-[#9ca3af]">
-            Set a monthly spending cap. You&apos;ll be alerted when you hit 80%.
+            You&apos;ll be alerted when you reach 80% of this limit.
           </p>
+
+          {(error || externalError) && (
+            <p className="text-xs text-[#E24B4A] bg-[#FCEBEB] px-3 py-2 rounded-xl">
+              {error ?? externalError}
+            </p>
+          )}
         </div>
 
         {/* Footer */}
         <div className="flex gap-2 px-5 pb-5">
           <button
             onClick={onClose}
-            className="flex-1 py-2.5 border border-[#e5e7eb] rounded-xl text-sm text-[#6b7280] hover:bg-[#f7f6f2] transition-all"
+            disabled={saving}
+            className="flex-1 py-2.5 border border-[#e5e7eb] rounded-xl text-sm text-[#6b7280] hover:bg-[#f7f6f2] disabled:opacity-50 transition-all"
           >
             Cancel
           </button>
           <button
             onClick={handleSave}
-            disabled={saving || !limit || Number(limit) <= 0}
+            disabled={
+              saving ||
+              !limit ||
+              Number(limit) <= 0 ||
+              (isOther && !customName.trim())
+            }
             className="flex-1 flex items-center justify-center gap-2 py-2.5 bg-[#1D9E75] hover:bg-[#0F6E56] disabled:opacity-50 text-white text-sm font-medium rounded-xl transition-all active:scale-[0.98]"
           >
-            {saving ?
-              <svg
-                className="animate-spin h-4 w-4"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8v8z"
-                />
+            {saving ? (
+              <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24" fill="none">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8z" />
               </svg>
-            : <Check size={14} />}
+            ) : (
+              <Check size={14} />
+            )}
             {saving ? "Saving…" : "Save budget"}
           </button>
         </div>

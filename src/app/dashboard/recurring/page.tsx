@@ -1,90 +1,37 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { RefreshCw, Plus } from "lucide-react";
+import { RefreshCw, Plus, AlertTriangle } from "lucide-react";
 import type { RecurringTx, Frequency } from "./types";
 import RecurringSummaryStrip from "../components/recurring/RecurringSummaryStrip";
 import RecurringFrequencyFilter from "../components/recurring/RecurringFrequencyFilter";
 import RecurringCard from "../components/recurring/RecurringCard";
 import RecurringModal from "../components/recurring/RecurringModal";
 import RecurringUpcomingPanel from "../components/recurring/RecurringUpcomingPanel";
-
-// ─── Seed data ─────────────────────────────────────────────────────────────────
-const INITIAL_RECURRING: RecurringTx[] = [
-  {
-    id: "1",
-    name: "Netflix",
-    category: "Entertainment",
-    amount: 4600,
-    type: "debit",
-    frequency: "monthly",
-    nextDate: "2026-06-07",
-    enabled: true,
-  },
-  {
-    id: "2",
-    name: "Salary credit",
-    category: "Income",
-    amount: 200000,
-    type: "credit",
-    frequency: "monthly",
-    nextDate: "2026-06-01",
-    enabled: true,
-  },
-  {
-    id: "3",
-    name: "Rent payment",
-    category: "Housing",
-    amount: 35000,
-    type: "debit",
-    frequency: "monthly",
-    nextDate: "2026-06-01",
-    enabled: true,
-  },
-  {
-    id: "4",
-    name: "Bolt weekly",
-    category: "Transport",
-    amount: 3500,
-    type: "debit",
-    frequency: "weekly",
-    nextDate: "2026-05-12",
-    enabled: false,
-  },
-];
+import { useRecurring } from "@/hooks/useRecurring";
 
 type FilterValue = "all" | Frequency;
 type ModalState = null | { mode: "create" } | { mode: "edit"; tx: RecurringTx };
 
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function RecurringTransactionsPage() {
-  const [txs, setTxs] = useState<RecurringTx[]>(INITIAL_RECURRING);
-  const [modal, setModal] = useState<ModalState>(null);
+  const { items, loading, error, create, update, toggle, remove } = useRecurring();
+
+  const [modal, setModal]   = useState<ModalState>(null);
   const [filter, setFilter] = useState<FilterValue>("all");
 
   const filtered = useMemo(
-    () => (filter === "all" ? txs : txs.filter((t) => t.frequency === filter)),
-    [txs, filter],
+    () => (filter === "all" ? items : items.filter((t) => t.frequency === filter)),
+    [items, filter],
   );
 
-  const handleSave = (data: Omit<RecurringTx, "id">) => {
+  const handleSave = async (data: Omit<RecurringTx, "id">) => {
     if (modal?.mode === "edit") {
-      setTxs((prev) =>
-        prev.map((t) => (t.id === modal.tx.id ? { ...t, ...data } : t)),
-      );
+      await update(modal.tx.id, data);
     } else {
-      setTxs((prev) => [...prev, { ...data, id: String(Date.now()) }]);
+      await create(data);
     }
     setModal(null);
   };
-
-  const handleToggle = (id: string) =>
-    setTxs((prev) =>
-      prev.map((t) => (t.id === id ? { ...t, enabled: !t.enabled } : t)),
-    );
-
-  const handleDelete = (id: string) =>
-    setTxs((prev) => prev.filter((t) => t.id !== id));
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto animate-fade-in">
@@ -116,17 +63,37 @@ export default function RecurringTransactionsPage() {
         </button>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="flex items-center gap-3 px-4 py-3 bg-[#FCEBEB] border border-red-200 rounded-2xl">
+          <AlertTriangle size={15} className="text-[#E24B4A] shrink-0" />
+          <p className="text-xs text-[#E24B4A]">{error}</p>
+        </div>
+      )}
+
       {/* Summary strip */}
-      <RecurringSummaryStrip txs={txs} />
+      {loading ? (
+        <div className="grid grid-cols-3 gap-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <div key={i} className="bg-white border border-[#f0f0ee] rounded-2xl p-4 h-16 animate-pulse" />
+          ))}
+        </div>
+      ) : (
+        <RecurringSummaryStrip txs={items} />
+      )}
 
       {/* Frequency filter */}
       <RecurringFrequencyFilter value={filter} onChange={setFilter} />
 
       {/* Main layout: cards + upcoming sidebar */}
       <div className="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-5 items-start">
-        {/* Cards / empty state */}
+        {/* Cards / loading / empty state */}
         <div className="space-y-3">
-          {filtered.length === 0 ?
+          {loading ? (
+            Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="bg-white border border-[#f0f0ee] rounded-2xl p-4 h-24 animate-pulse" />
+            ))
+          ) : filtered.length === 0 ? (
             <div className="bg-white border border-[#f0f0ee] rounded-2xl p-10 text-center space-y-3">
               <div className="w-12 h-12 rounded-2xl bg-[#f7f6f2] flex items-center justify-center mx-auto">
                 <RefreshCw size={20} className="text-[#9ca3af]" />
@@ -144,22 +111,25 @@ export default function RecurringTransactionsPage() {
                 <Plus size={13} /> Schedule
               </button>
             </div>
-          : filtered.map((t) => (
+          ) : (
+            filtered.map((t) => (
               <RecurringCard
                 key={t.id}
                 tx={t}
-                onToggle={handleToggle}
+                onToggle={toggle}
                 onEdit={(t) => setModal({ mode: "edit", tx: t })}
-                onDelete={handleDelete}
+                onDelete={remove}
               />
             ))
-          }
+          )}
         </div>
 
         {/* Upcoming sidebar */}
-        <div className="lg:sticky lg:top-6">
-          <RecurringUpcomingPanel txs={txs} />
-        </div>
+        {!loading && (
+          <div className="lg:sticky lg:top-6">
+            <RecurringUpcomingPanel txs={items} />
+          </div>
+        )}
       </div>
     </div>
   );
