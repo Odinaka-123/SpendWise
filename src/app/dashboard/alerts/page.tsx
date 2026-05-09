@@ -3,51 +3,72 @@
 import { useState, useMemo } from "react";
 import { Bell, Plus } from "lucide-react";
 import type { BudgetAlert } from "./types";
-import { CATEGORIES, MOCK_SPEND } from "./types";
 import AlertSummaryStrip from "../components/alerts/AlertSummaryStrip";
 import AlertCard from "../components/alerts/AlertCard";
 import AlertModal from "../components/alerts/AlertModal";
 import AlertTipsPanel from "../components/alerts/AlertTipsPanel";
+import { useBudgetAlerts } from "@/hooks/useBudgetAlerts";
+import { useCategories } from "@/hooks/useCategories";
 
-// ─── Seed data ─────────────────────────────────────────────────────────────────
-const INITIAL_ALERTS: BudgetAlert[] = [
-  { id: "1", category: "Groceries", limit: 20000, alertAt: 80, enabled: true },
-  { id: "2", category: "Dining", limit: 8000, alertAt: 75, enabled: true },
-  { id: "3", category: "Transport", limit: 5000, alertAt: 80, enabled: false },
-  { id: "4", category: "Utility", limit: 10000, alertAt: 90, enabled: true },
-];
-
-type ModalState =
-  | null
-  | { mode: "create" }
-  | { mode: "edit"; alert: BudgetAlert };
-
-// ─── Page ─────────────────────────────────────────────────────────────────────
 export default function BudgetAlertsPage() {
-  const [alerts, setAlerts] = useState<BudgetAlert[]>(INITIAL_ALERTS);
-  const [modal, setModal] = useState<ModalState>(null);
+  const currentMonth = new Date().toISOString().slice(0, 7);
+  const { budgets: rawBudgets, loading, error, upsert, remove } =
+    useBudgetAlerts(currentMonth);
+  const { categories } = useCategories();
 
-  const usedCategories = useMemo(() => alerts.map((a) => a.category), [alerts]);
-  const canAdd = usedCategories.length < CATEGORIES.length;
+  const [modal, setModal] = useState<
+    null | { mode: "create" } | { mode: "edit"; alert: BudgetAlert }
+  >(null);
 
-  const handleSave = (data: Omit<BudgetAlert, "id">) => {
-    if (modal?.mode === "edit") {
-      setAlerts((prev) =>
-        prev.map((a) => (a.id === modal.alert.id ? { ...a, ...data } : a)),
-      );
-    } else {
-      setAlerts((prev) => [...prev, { ...data, id: String(Date.now()) }]);
+  // Map BudgetVsActual → BudgetAlert shape the components expect
+  const alerts: BudgetAlert[] = useMemo(
+    () =>
+      rawBudgets.map((b) => ({
+        id:          b.category_id,
+        category:    b.category_name ?? b.category_id,
+        category_id: b.category_id,
+        limit:       b.budget_amount,
+        alertAt:     80,
+        enabled:     true,
+        spend:       b.actual_spent,
+      })),
+    [rawBudgets]
+  );
+
+  const usedCategories = useMemo(
+    () => alerts.map((a) => a.category),
+    [alerts]
+  );
+
+  const budgetedIds = new Set(rawBudgets.map((b) => b.category_id));
+  const canAdd = categories.length === 0 || categories.some((c) => !budgetedIds.has(c.id));
+
+  // ── Handlers ──────────────────────────────────────────────────────────────
+  const handleSave = async (data: Omit<BudgetAlert, "id">) => {
+    let cat = categories.find((c) => c.name === data.category);
+
+    if (!cat) {
+      const { createCategory } = await import("@/lib/actions/categories");
+      const created = await createCategory({
+        name:  data.category,
+        color: "#6b7280",
+        icon:  "wallet",
+      });
+      if (!created) return;
+      cat = created;
     }
+
+    await upsert({ category_id: cat!.id, amount: data.limit });
     setModal(null);
   };
 
-  const handleToggle = (id: string) =>
-    setAlerts((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, enabled: !a.enabled } : a)),
-    );
+  const handleToggle = () => {
+    // alertAt/enabled are UI-only — not stored in DB yet
+  };
 
-  const handleDelete = (id: string) =>
-    setAlerts((prev) => prev.filter((a) => a.id !== id));
+  const handleDelete = async (id: string) => {
+    await remove(id);
+  };
 
   return (
     <div className="space-y-5 max-w-3xl mx-auto animate-fade-in">
@@ -56,7 +77,7 @@ export default function BudgetAlertsPage() {
         <AlertModal
           existing={modal.mode === "edit" ? modal.alert : undefined}
           usedCategories={usedCategories}
-          onSave={handleSave}
+          onSave={(data) => { handleSave(data) }}
           onClose={() => setModal(null)}
         />
       )}
@@ -68,8 +89,7 @@ export default function BudgetAlertsPage() {
             Budget Alerts
           </h2>
           <p className="text-[#9ca3af] text-xs mt-0.5">
-            Set monthly limits per category and get notified when nearing your
-            cap
+            Set monthly limits per category and get notified when nearing your cap
           </p>
         </div>
         <button
@@ -82,11 +102,27 @@ export default function BudgetAlertsPage() {
         </button>
       </div>
 
+      {/* Error */}
+      {error && (
+        <div className="px-4 py-3 bg-[#FCEBEB] border border-red-200 rounded-xl">
+          <p className="text-xs text-[#E24B4A]">{error}</p>
+        </div>
+      )}
+
       {/* Summary strip */}
       <AlertSummaryStrip alerts={alerts} />
 
-      {/* Alert cards / empty state */}
-      {alerts.length === 0 ?
+      {/* Cards / empty state */}
+      {loading ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div
+              key={i}
+              className="bg-white border border-[#f0f0ee] rounded-2xl p-5 h-40 animate-pulse"
+            />
+          ))}
+        </div>
+      ) : alerts.length === 0 ? (
         <div className="bg-white border border-[#f0f0ee] rounded-2xl p-10 text-center space-y-3">
           <div className="w-12 h-12 rounded-2xl bg-[#f7f6f2] flex items-center justify-center mx-auto">
             <Bell size={20} className="text-[#9ca3af]" />
@@ -102,19 +138,19 @@ export default function BudgetAlertsPage() {
             <Plus size={13} /> New alert
           </button>
         </div>
-      : <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {alerts.map((a) => (
             <AlertCard
               key={a.id}
               alert={a}
-              spend={MOCK_SPEND[a.category] ?? 0}
               onToggle={handleToggle}
-              onEdit={(a) => setModal({ mode: "edit", alert: a })}
+              onEdit={(a: BudgetAlert) => setModal({ mode: "edit", alert: a })}
               onDelete={handleDelete}
             />
           ))}
         </div>
-      }
+      )}
 
       {/* Tips */}
       <AlertTipsPanel />

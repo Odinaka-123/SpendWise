@@ -23,12 +23,13 @@ export default function AlertModal({
   const [alertAt, setAlertAt] = useState(existing?.alertAt ?? 80);
   const [enabled, setEnabled] = useState(existing?.enabled ?? true);
 
-  // When editing, all categories are available (the current one is already used)
-  const available = existing
-    ? CATEGORIES
-    : CATEGORIES.filter((c) => !usedCategories.includes(c));
+  const available =
+    existing ?
+      [...CATEGORIES]
+    : [...CATEGORIES].filter((c) => !usedCategories.includes(c));
 
-  const valid = category !== "" && Number(limit) > 0 && alertAt >= 1 && alertAt <= 99;
+  const valid =
+    category !== "" && Number(limit) > 0 && alertAt >= 1 && alertAt <= 99;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 px-4">
@@ -112,7 +113,9 @@ export default function AlertModal({
 
         {/* Enable toggle */}
         <div className="flex items-center justify-between py-1">
-          <span className="text-xs font-medium text-[#9ca3af]">Enable alert</span>
+          <span className="text-xs font-medium text-[#9ca3af]">
+            Enable alert
+          </span>
           <button
             onClick={() => setEnabled((p) => !p)}
             className={`w-10 h-5 rounded-full transition-colors duration-200 relative shrink-0 ${
@@ -138,7 +141,14 @@ export default function AlertModal({
           <button
             onClick={() => {
               if (!valid) return;
-              onSave({ category, limit: Number(limit), alertAt, enabled });
+              onSave({
+                category,
+                category_id: existing?.category_id ?? "", // page fills this in via handleSave
+                limit: Number(limit),
+                alertAt,
+                enabled,
+                spend: existing?.spend ?? 0,
+              });
             }}
             disabled={!valid}
             className="flex-1 py-2 text-xs font-semibold rounded-xl bg-[#1D9E75] text-white hover:bg-[#0F6E56] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"

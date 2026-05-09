@@ -1,7 +1,6 @@
 "use client";
 
 import type { BudgetAlert } from "../../alerts/types";
-import { MOCK_SPEND } from "../../alerts/types";
 
 interface AlertSummaryStripProps {
   alerts: BudgetAlert[];
@@ -10,15 +9,12 @@ interface AlertSummaryStripProps {
 export default function AlertSummaryStrip({ alerts }: AlertSummaryStripProps) {
   const active = alerts.filter((a) => a.enabled).length;
 
-  const triggered = alerts.filter((a) => {
-    const spend = MOCK_SPEND[a.category] ?? 0;
-    return a.enabled && spend / a.limit >= a.alertAt / 100;
-  }).length;
+  const triggered = alerts.filter(
+    (a) =>
+      a.enabled && a.spend / a.limit >= a.alertAt / 100 && a.spend < a.limit,
+  ).length;
 
-  const over = alerts.filter((a) => {
-    const spend = MOCK_SPEND[a.category] ?? 0;
-    return a.enabled && spend >= a.limit;
-  }).length;
+  const over = alerts.filter((a) => a.enabled && a.spend >= a.limit).length;
 
   const stats = [
     { label: "Active alerts", value: active, color: "text-[#0a1a14]" },
