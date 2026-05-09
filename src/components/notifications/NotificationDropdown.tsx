@@ -23,7 +23,7 @@ export default function NotificationDropdown({
   const isEmpty = notifications.length === 0;
 
   return (
-    <div className="absolute right-0 top-full mt-2 w-[360px] bg-white border border-[#f0f0ee] rounded-2xl shadow-xl overflow-hidden z-50">
+    <div className="absolute right-0 top-full mt-2 w-90 bg-white border border-[#f0f0ee] rounded-2xl shadow-xl overflow-hidden z-50">
       {/* ── Header ── */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#f0f0ee]">
         <div className="flex items-center gap-2">
@@ -58,7 +58,7 @@ export default function NotificationDropdown({
       </div>
 
       {/* ── List ── */}
-      <div className="max-h-[420px] overflow-y-auto divide-y divide-[#f7f6f2]">
+      <div className="max-h-105 overflow-y-auto divide-y divide-[#f7f6f2]">
         {isEmpty ?
           <div className="flex flex-col items-center justify-center py-12 gap-2">
             <div className="w-10 h-10 rounded-2xl bg-[#f7f6f2] flex items-center justify-center">
