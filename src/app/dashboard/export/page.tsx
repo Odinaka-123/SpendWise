@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import ReportRangeSelector, {
   type DateRange,
 } from "../components/export/ReportRangeSelector";
@@ -15,140 +15,10 @@ import ExportButton from "../components/export/ExportButton";
 import RecentExports, {
   type ExportRecord,
 } from "../components/export/RecentExports";
+import { useCategories } from "@/hooks/useCategories";
+import { supabase } from "@/lib/supabase";
 
-// ─── Mock transaction data (same seed as transactions page) ───────────────────
-const ALL_TRANSACTIONS = [
-  {
-    id: "1",
-    name: "Shoprite Ikeja",
-    category: "Groceries",
-    amount: 4350,
-    date: "2026-05-08",
-    type: "debit" as const,
-  },
-  {
-    id: "2",
-    name: "Bolt ride",
-    category: "Transport",
-    amount: 1200,
-    date: "2026-05-08",
-    type: "debit" as const,
-  },
-  {
-    id: "3",
-    name: "Salary credit",
-    category: "Income",
-    amount: 200000,
-    date: "2026-05-07",
-    type: "credit" as const,
-  },
-  {
-    id: "4",
-    name: "Chicken Republic",
-    category: "Dining",
-    amount: 3800,
-    date: "2026-05-07",
-    type: "debit" as const,
-  },
-  {
-    id: "5",
-    name: "Netflix",
-    category: "Entertainment",
-    amount: 4600,
-    date: "2026-05-07",
-    type: "debit" as const,
-  },
-  {
-    id: "6",
-    name: "EKEDC Bill",
-    category: "Utility",
-    amount: 8500,
-    date: "2026-05-06",
-    type: "debit" as const,
-  },
-  {
-    id: "7",
-    name: "Rent payment",
-    category: "Housing",
-    amount: 35000,
-    date: "2026-05-01",
-    type: "debit" as const,
-  },
-  {
-    id: "8",
-    name: "Tantalizers",
-    category: "Dining",
-    amount: 2200,
-    date: "2026-05-05",
-    type: "debit" as const,
-  },
-  {
-    id: "9",
-    name: "Uber",
-    category: "Transport",
-    amount: 1600,
-    date: "2026-05-04",
-    type: "debit" as const,
-  },
-  {
-    id: "10",
-    name: "Konga order",
-    category: "Other",
-    amount: 12000,
-    date: "2026-05-03",
-    type: "debit" as const,
-  },
-];
-
-// ─── CSV generator ────────────────────────────────────────────────────────────
-function generateCSV(rows: typeof ALL_TRANSACTIONS) {
-  const header = "Date,Description,Category,Type,Amount (₦)";
-  const lines = rows.map(
-    (r) => `${r.date},"${r.name}",${r.category},${r.type},${r.amount}`,
-  );
-  return [header, ...lines].join("\n");
-}
-
-// ─── PDF generator (plain text stub — replace with jsPDF / Puppeteer) ─────────
-function generatePDFBlob(
-  rows: typeof ALL_TRANSACTIONS,
-  range: DateRange,
-): Blob {
-  // Stub: creates a text blob. Wire up jsPDF or a server-side PDF renderer here.
-  const lines = [
-    "SpendWise — Expense Report",
-    `Period: ${range.from} to ${range.to}`,
-    `Generated: ${new Date().toLocaleString()}`,
-    "",
-    "Date         Description              Category       Type    Amount",
-    "─".repeat(72),
-    ...rows.map(
-      (r) =>
-        `${r.date}  ${r.name.padEnd(24)} ${r.category.padEnd(14)} ${r.type.padEnd(7)} ₦${r.amount.toLocaleString()}`,
-    ),
-    "─".repeat(72),
-    `Total income:  ₦${rows
-      .filter((r) => r.type === "credit")
-      .reduce((s, r) => s + r.amount, 0)
-      .toLocaleString()}`,
-    `Total expenses: ₦${rows
-      .filter((r) => r.type === "debit")
-      .reduce((s, r) => s + r.amount, 0)
-      .toLocaleString()}`,
-  ];
-  return new Blob([lines.join("\n")], { type: "application/pdf" });
-}
-
-function triggerDownload(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-
-// ─── Initial date range (this month) ─────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 function thisMonth(): DateRange {
   const now = new Date();
   return {
@@ -159,7 +29,6 @@ function thisMonth(): DateRange {
   };
 }
 
-// ─── Initial recent exports ────────────────────────────────────────────────────
 function getInitialRecentExports(): ExportRecord[] {
   const now = Date.now();
   return [
@@ -167,17 +36,23 @@ function getInitialRecentExports(): ExportRecord[] {
       id: "prev-1",
       format: "pdf",
       label: "April 2026 — Full Report",
-      generatedAt: new Date(now - 2 * 24 * 60 * 60 * 1000).toISOString(),
+      generatedAt: new Date(now - 2 * 86400000).toISOString(),
       size: "48 KB",
     },
     {
       id: "prev-2",
       format: "csv",
       label: "Q1 2026 — All Transactions",
-      generatedAt: new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString(),
+      generatedAt: new Date(now - 7 * 86400000).toISOString(),
       size: "12 KB",
     },
   ];
+}
+
+interface PreviewStats {
+  txCount: number;
+  totalIncome: number;
+  totalExpense: number;
 }
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
@@ -188,108 +63,165 @@ export default function ReportsPage() {
     categories: [],
     type: "all",
   });
-  const [recentExports, setRecentExports] = useState<ExportRecord[]>(getInitialRecentExports());
+  const [recentExports, setRecentExports] = useState<ExportRecord[]>(
+    getInitialRecentExports(),
+  );
+  const [preview, setPreview] = useState<PreviewStats>({
+    txCount: 0,
+    totalIncome: 0,
+    totalExpense: 0,
+  });
+  const [previewLoading, setPreviewLoading] = useState(false);
 
-  // ── Filtered transactions based on range + filters ──────────────────────────
-  const filtered = useMemo(() => {
-    return ALL_TRANSACTIONS.filter((t) => {
-      const inRange =
-        (!range.from || t.date >= range.from) &&
-        (!range.to || t.date <= range.to);
-      const inType = filters.type === "all" || t.type === filters.type;
-      const inCat =
-        filters.categories.length === 0 ||
-        filters.categories.includes(t.category);
-      return inRange && inType && inCat;
-    });
-  }, [range, filters]);
+  const { categories } = useCategories();
+  const categoryNames = useMemo(
+    () => categories.map((c) => c.name),
+    [categories],
+  );
 
-  const totalIncome = filtered
-    .filter((t) => t.type === "credit")
-    .reduce((s, t) => s + t.amount, 0);
-  const totalExpense = filtered
-    .filter((t) => t.type === "debit")
-    .reduce((s, t) => s + t.amount, 0);
+  // ── Live preview: re-query whenever range or filters change ─────────────────
+  useEffect(() => {
+    let cancelled = false;
 
-  // ── Export handler ──────────────────────────────────────────────────────────
+    (async () => {
+      setPreviewLoading(true);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user || cancelled) return;
+
+        let query = supabase
+          .from("expenses")
+          .select("amount, type, category_id")
+          .eq("user_id", user.id);
+
+        if (range.from) query = query.gte("date", range.from);
+        if (range.to) query = query.lte("date", range.to);
+        if (filters.type !== "all") query = query.eq("type", filters.type);
+
+        // Filter by category names → ids
+        if (filters.categories.length > 0) {
+          const matchedIds = categories
+            .filter((c) => filters.categories.includes(c.name))
+            .map((c) => c.id);
+          if (matchedIds.length > 0) {
+            query = query.in("category_id", matchedIds);
+          }
+        }
+
+        const { data } = await query;
+        if (cancelled || !data) return;
+
+        const rows = data as { amount: number; type: string }[];
+        const totalIncome = rows
+          .filter((r) => r.type === "credit")
+          .reduce((s, r) => s + Number(r.amount), 0);
+        const totalExpense = rows
+          .filter((r) => r.type === "debit")
+          .reduce((s, r) => s + Number(r.amount), 0);
+
+        setPreview({ txCount: rows.length, totalIncome, totalExpense });
+      } finally {
+        if (!cancelled) setPreviewLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [range, filters, categories]);
+
+  // ── Export ─────────────────────────────────────────────────────────────────
   const handleExport = async () => {
-    await new Promise((r) => setTimeout(r, 1400)); // simulate generation
+    const res = await fetch("/api/export", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        from: range.from,
+        to: range.to,
+        type: filters.type,
+        categories: filters.categories,
+        format,
+      }),
+    });
 
-    // const timestamp = new Date().toISOString().split("T")[0];
-    const baseLabel = `${range.from}_to_${range.to}`;
+    if (!res.ok) throw new Error("Export failed");
 
-    if (format === "csv") {
-      const csv = generateCSV(filtered);
-      const blob = new Blob([csv], { type: "text/csv" });
-      triggerDownload(blob, `spendwise_${baseLabel}.csv`);
-      const size = `${Math.round(blob.size / 1024) || 1} KB`;
-      setRecentExports((p) => [
-        {
-          id: String(Date.now()),
-          format: "csv",
-          label: `${range.from} – ${range.to} · CSV`,
-          generatedAt: new Date().toISOString(),
-          size,
-        },
-        ...p.slice(0, 4),
-      ]);
-    } else {
-      const blob = generatePDFBlob(filtered, range);
-      triggerDownload(blob, `spendwise_${baseLabel}.pdf`);
-      setRecentExports((p) => [
-        {
-          id: String(Date.now()),
-          format: "pdf",
-          label: `${range.from} – ${range.to} · PDF`,
-          generatedAt: new Date().toISOString(),
-          size: `${Math.round(blob.size / 1024) || 1} KB`,
-        },
-        ...p.slice(0, 4),
-      ]);
-    }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `spendwise-report.${format}`;
+    a.click();
+    URL.revokeObjectURL(url);
+
+    setRecentExports((prev) => [
+      {
+        id: String(Date.now()),
+        format,
+        label: `${range.from} – ${range.to} · ${format.toUpperCase()}`,
+        generatedAt: new Date().toISOString(),
+        size: `${Math.round(blob.size / 1024) || 1} KB`,
+      },
+      ...prev.slice(0, 4),
+    ]);
   };
 
-  const handleReDownload = (id: string) => {
+  // Re-download: re-call the API with same params stored in the label
+  // In production: store params in Supabase storage and fetch by id.
+  const handleReDownload = async (id: string) => {
     const record = recentExports.find((r) => r.id === id);
     if (!record) return;
-    // In production, re-fetch the stored file from Supabase Storage
-    console.log("Re-downloading:", record);
+    console.log("Re-download requested for:", record.label);
   };
 
-  const isReady = !!range.from && !!range.to && filtered.length > 0;
+  const isReady = !!range.from && !!range.to && preview.txCount > 0;
 
   return (
-    <div className="space-y-5 max-w-300 mx-auto animate-fade-in">
+    <div className="space-y-5 max-w-5xl mx-auto animate-fade-in">
       {/* Header */}
       <div>
-        <h2 className="text-[#0a1a14] text-lg font-semibold">Export Reports</h2>
-        <p className="text-[#9ca3af] text-xs mt-0.5">
-          Download PDF summaries or CSV data by date range
+        <h2 className="text-lg font-semibold text-[#0a1a14]">
+          Export Reports
+        </h2>
+        <p className="text-xs text-[#9ca3af] mt-0.5">
+          Download your real transaction data as PDF or CSV
         </p>
       </div>
 
-      {/* Main layout: left config col + right preview col */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_320px] gap-5 items-start">
-        {/* ── Left: config stack ── */}
+      {/* Layout */}
+      <div className="grid lg:grid-cols-[1fr_320px] gap-5">
+        {/* Left — config */}
         <div className="space-y-4">
           <ReportRangeSelector range={range} onChange={setRange} />
           <ReportFormatPicker selected={format} onChange={setFormat} />
-          <ReportFiltersPanel filters={filters} onChange={setFilters} />
+          <ReportFiltersPanel
+            filters={filters}
+            onChange={setFilters}
+            categoryOptions={categoryNames}
+          />
         </div>
 
-        {/* ── Right: preview + export ── */}
+        {/* Right — preview + export */}
         <div className="space-y-4 lg:sticky lg:top-6">
-          <ReportPreviewCard
-            format={format}
-            range={range}
-            filters={filters}
-            txCount={filtered.length}
-            totalIncome={totalIncome}
-            totalExpense={totalExpense}
-          />
+          {/* Preview shimmer while loading */}
+          <div className="relative">
+            {previewLoading && (
+              <div className="absolute inset-0 bg-white/60 rounded-2xl z-10 animate-pulse" />
+            )}
+            <ReportPreviewCard
+              format={format}
+              range={range}
+              filters={filters}
+              txCount={preview.txCount}
+              totalIncome={preview.totalIncome}
+              totalExpense={preview.totalExpense}
+            />
+          </div>
 
-          {/* Empty state warning */}
-          {!isReady && filtered.length === 0 && range.from && range.to && (
+          {/* Empty warning */}
+          {!previewLoading && range.from && range.to && preview.txCount === 0 && (
             <div className="px-4 py-3 bg-[#FEF3C7] border border-[#FDE68A] rounded-xl">
               <p className="text-xs text-[#92400E]">
                 No transactions found for this period and filter combination.
@@ -299,7 +231,7 @@ export default function ReportsPage() {
 
           <ExportButton
             format={format}
-            disabled={!isReady}
+            disabled={!isReady || previewLoading}
             onExport={handleExport}
           />
         </div>

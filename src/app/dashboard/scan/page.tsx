@@ -7,36 +7,42 @@ import OcrReviewForm, { type OcrResult } from "../components/scan/OcrReviewForm"
 
 type Step = "idle" | "scanning" | "review";
 
-// Simulated OCR result — replace with real Tesseract / Google Vision call
-function mockOcr(): Promise<OcrResult> {
-  return new Promise((resolve) =>
-    setTimeout(
-      () =>
-        resolve({
-          name: "Shoprite Ikeja",
-          amount: "4350",
-          date: new Date().toISOString().split("T")[0],
-          category: "Groceries",
-        }),
-      2200,
-    ),
-  );
-}
-
 export default function ScanPage() {
   const [step, setStep] = useState<Step>("idle");
   const [preview, setPreview] = useState<string | null>(null);
   const [ocrResult, setOcrResult] = useState<OcrResult | null>(null);
 
   const handleFile = async (file: File) => {
-    const url = URL.createObjectURL(file);
-    setPreview(url);
-    setStep("scanning");
+  const url = URL.createObjectURL(file);
 
-    const result = await mockOcr();
-    setOcrResult(result);
+  setPreview(url);
+  setStep("scanning");
+
+  try {
+    const formData = new FormData();
+
+    formData.append("file", file);
+
+    const res = await fetch("/api/scan", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await res.json();
+
+    if (!res.ok) {
+      throw new Error(data.error || "OCR failed");
+    }
+
+    setOcrResult(data.data);
+
     setStep("review");
-  };
+  } catch (error) {
+    console.error(error);
+
+    setStep("idle");
+  }
+};
 
   const handleClear = () => {
     setPreview(null);

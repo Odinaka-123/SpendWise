@@ -3,6 +3,19 @@
 import { useState } from "react";
 import clsx from "clsx";
 
+import { updatePreferences } from "@/lib/actions/settings";
+
+interface PreferencesProfile {
+  currency: string;
+  budget_alerts: boolean;
+  weekly_summary: boolean;
+  large_txn: boolean;
+}
+
+interface PreferencesSectionProps {
+  profile: PreferencesProfile | null;
+}
+
 const currencies = [
   { code: "NGN", symbol: "₦", label: "Nigerian Naira" },
   { code: "USD", symbol: "$", label: "US Dollar" },
@@ -11,9 +24,15 @@ const currencies = [
 ];
 
 interface Toggle {
-  id: string;
+  id: keyof NotificationSettings;
   label: string;
   desc: string;
+}
+
+interface NotificationSettings {
+  budget_alerts: boolean;
+  weekly_summary: boolean;
+  large_txn: boolean;
 }
 
 const toggles: Toggle[] = [
@@ -34,29 +53,67 @@ const toggles: Toggle[] = [
   },
 ];
 
-export default function PreferencesSection() {
-  const [currency, setCurrency] = useState("NGN");
-  const [enabled, setEnabled] = useState<Record<string, boolean>>({
-    budget_alerts: true,
-    weekly_summary: true,
-    large_txn: false,
+export default function PreferencesSection({
+  profile,
+}: PreferencesSectionProps) {
+  const [currency, setCurrency] = useState<string>(
+    profile?.currency || "NGN",
+  );
+
+  const [enabled, setEnabled] = useState<NotificationSettings>({
+    budget_alerts: profile?.budget_alerts ?? true,
+    weekly_summary: profile?.weekly_summary ?? true,
+    large_txn: profile?.large_txn ?? false,
   });
 
-  const toggle = (id: string) => setEnabled((p) => ({ ...p, [id]: !p[id] }));
+  const savePreferences = async (
+    nextCurrency: string,
+    nextSettings: NotificationSettings,
+  ) => {
+    try {
+      await updatePreferences({
+        currency: nextCurrency,
+        budget_alerts: nextSettings.budget_alerts,
+        weekly_summary: nextSettings.weekly_summary,
+        large_txn: nextSettings.large_txn,
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  const toggle = async (id: keyof NotificationSettings) => {
+    const updated: NotificationSettings = {
+      ...enabled,
+      [id]: !enabled[id],
+    };
+
+    setEnabled(updated);
+
+    await savePreferences(currency, updated);
+  };
 
   return (
     <>
       {/* Currency */}
       <div className="bg-white border border-[#f0f0ee] rounded-2xl p-5 space-y-3">
-        <p className="text-sm font-semibold text-[#0a1a14]">Currency</p>
+        <p className="text-sm font-semibold text-[#0a1a14]">
+          Currency
+        </p>
+
         <p className="text-xs text-[#9ca3af]">
           Choose your preferred display currency
         </p>
+
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {currencies.map((c) => (
             <button
               key={c.code}
-              onClick={() => setCurrency(c.code)}
+              onClick={async () => {
+                setCurrency(c.code);
+
+                await savePreferences(c.code, enabled);
+              }}
               className={clsx(
                 "flex flex-col items-center gap-1 py-3 rounded-xl border text-xs font-medium transition-all",
                 currency === c.code ?
@@ -65,6 +122,7 @@ export default function PreferencesSection() {
               )}
             >
               <span className="text-lg">{c.symbol}</span>
+
               <span>{c.code}</span>
             </button>
           ))}
@@ -73,19 +131,33 @@ export default function PreferencesSection() {
 
       {/* Notifications */}
       <div className="bg-white border border-[#f0f0ee] rounded-2xl p-5 space-y-4">
-        <p className="text-sm font-semibold text-[#0a1a14]">Notifications</p>
+        <p className="text-sm font-semibold text-[#0a1a14]">
+          Notifications
+        </p>
+
         <div className="space-y-3">
           {toggles.map((t) => (
-            <div key={t.id} className="flex items-center justify-between gap-4">
+            <div
+              key={t.id}
+              className="flex items-center justify-between gap-4"
+            >
               <div>
-                <p className="text-sm text-[#0a1a14]">{t.label}</p>
-                <p className="text-xs text-[#9ca3af]">{t.desc}</p>
+                <p className="text-sm text-[#0a1a14]">
+                  {t.label}
+                </p>
+
+                <p className="text-xs text-[#9ca3af]">
+                  {t.desc}
+                </p>
               </div>
+
               <button
                 onClick={() => toggle(t.id)}
                 className={clsx(
                   "relative w-10 h-5.5 rounded-full shrink-0 transition-colors duration-200",
-                  enabled[t.id] ? "bg-[#1D9E75]" : "bg-[#e5e7eb]",
+                  enabled[t.id] ?
+                    "bg-[#1D9E75]"
+                  : "bg-[#e5e7eb]",
                 )}
                 style={{ height: "22px" }}
                 aria-pressed={enabled[t.id]}
@@ -93,9 +165,14 @@ export default function PreferencesSection() {
                 <span
                   className={clsx(
                     "absolute top-0.5 w-4.5 h-4.5 bg-white rounded-full shadow-sm transition-all duration-200",
-                    enabled[t.id] ? "left-[calc(100%-20px)]" : "left-0.5",
+                    enabled[t.id] ?
+                      "left-[calc(100%-20px)]"
+                    : "left-0.5",
                   )}
-                  style={{ width: "18px", height: "18px" }}
+                  style={{
+                    width: "18px",
+                    height: "18px",
+                  }}
                 />
               </button>
             </div>

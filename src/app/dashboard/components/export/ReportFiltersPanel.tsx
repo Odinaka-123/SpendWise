@@ -3,17 +3,6 @@
 import { SlidersHorizontal } from "lucide-react";
 import clsx from "clsx";
 
-const CATEGORIES = [
-  "Groceries",
-  "Dining",
-  "Transport",
-  "Housing",
-  "Entertainment",
-  "Utility",
-  "Income",
-  "Other",
-];
-
 export interface ReportFilters {
   categories: string[];
   type: "all" | "debit" | "credit";
@@ -22,6 +11,8 @@ export interface ReportFilters {
 interface ReportFiltersProps {
   filters: ReportFilters;
   onChange: (f: ReportFilters) => void;
+  /** Category names from DB — passed in from the page */
+  categoryOptions: string[];
 }
 
 const TYPE_OPTIONS: { label: string; value: ReportFilters["type"] }[] = [
@@ -33,11 +24,11 @@ const TYPE_OPTIONS: { label: string; value: ReportFilters["type"] }[] = [
 export default function ReportFiltersPanel({
   filters,
   onChange,
+  categoryOptions,
 }: ReportFiltersProps) {
   const toggleCategory = (cat: string) => {
-    const next =
-      filters.categories.includes(cat) ?
-        filters.categories.filter((c) => c !== cat)
+    const next = filters.categories.includes(cat)
+      ? filters.categories.filter((c) => c !== cat)
       : [...filters.categories, cat];
     onChange({ ...filters, categories: next });
   };
@@ -65,9 +56,9 @@ export default function ReportFiltersPanel({
               onClick={() => onChange({ ...filters, type: t.value })}
               className={clsx(
                 "px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-150",
-                filters.type === t.value ?
-                  "bg-[#0a1a14] text-white"
-                : "bg-[#f7f6f2] text-[#6b7280] hover:bg-[#e5e7eb]",
+                filters.type === t.value
+                  ? "bg-[#0a1a14] text-white"
+                  : "bg-[#f7f6f2] text-[#6b7280] hover:bg-[#e5e7eb]",
               )}
             >
               {t.label}
@@ -88,28 +79,26 @@ export default function ReportFiltersPanel({
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
-          {CATEGORIES.map((cat) => {
-            // const active = allSelected || filters.categories.includes(cat);
-            return (
-              <button
-                key={cat}
-                onClick={() => toggleCategory(cat)}
-                className={clsx(
-                  "px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-150",
-                  filters.categories.includes(cat) ? "bg-[#1D9E75] text-white"
-                  : allSelected ?
-                    "bg-[#f7f6f2] text-[#6b7280] hover:bg-[#e5e7eb]"
-                  : "bg-[#f7f6f2] text-[#d1d5db] hover:bg-[#e5e7eb] hover:text-[#6b7280]",
-                )}
-              >
-                {cat}
-              </button>
-            );
-          })}
+          {categoryOptions.map((cat) => (
+            <button
+              key={cat}
+              onClick={() => toggleCategory(cat)}
+              className={clsx(
+                "px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-150",
+                filters.categories.includes(cat)
+                  ? "bg-[#1D9E75] text-white"
+                  : allSelected
+                    ? "bg-[#f7f6f2] text-[#6b7280] hover:bg-[#e5e7eb]"
+                    : "bg-[#f7f6f2] text-[#d1d5db] hover:bg-[#e5e7eb] hover:text-[#6b7280]",
+              )}
+            >
+              {cat}
+            </button>
+          ))}
         </div>
         {!allSelected && (
           <p className="text-xs text-[#9ca3af]">
-            {filters.categories.length} of {CATEGORIES.length} selected
+            {filters.categories.length} of {categoryOptions.length} selected
           </p>
         )}
       </div>
